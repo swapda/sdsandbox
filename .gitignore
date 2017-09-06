@@ -1,5 +1,6 @@
 *.pyc
 *.h5
+sdsim/.vs
 sdsim/Library
 sdsim/log/*
 sdsim/obj
@@ -7,4 +8,5 @@ sdsim/*.sln
 sdsim/*.userprefs
 sdsim/Temp
 sdsdim/*.csproj
-
+*.csproj
+sdsim/Build
