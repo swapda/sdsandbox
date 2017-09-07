@@ -4,11 +4,11 @@ training_patience = 6
 
 training_batch_size = 128
 
-training_default_epochs = 100
+training_default_epochs = 200
 
 training_default_aug_mult = 1
 
-training_default_aug_percent = 0.0
+training_default_aug_percent = 0.5
 
 image_width = 160
 image_height = 120
