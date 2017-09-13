@@ -17,6 +17,7 @@ import conf
 import random
 import augment
 import models
+import cv2
 
 
 '''
@@ -61,7 +62,82 @@ def parse_img_filepath(filepath):
 
     return data
 
-def generator(samples, batch_size=32, perc_to_augment=0.5):
+def get_prev_fnm(fullpath, d):
+    bn = os.path.basename(fullpath)
+    sl = bn.split('_')
+    num_str = sl[1]
+    n = int(num_str)
+    num_digits = len(num_str)
+    p = n - 1
+    padded_prev = '%06d' % (p)
+    path, name = os.path.split(fullpath)
+    new_mask = os.path.join(path, "%s_%s_" % ( sl[0], padded_prev))
+    h = hash_name(new_mask)
+    if h in d:
+        #print('worked', new_mask)
+        return d[h]
+    '''
+    print("failed", new_mask)
+    for key, value in d.items():
+        if new_mask in value:
+            print('but found!', value)
+            return value
+    print('really not there?')
+    '''
+    return None
+
+def stack3Images(img_a, img_b, img_c):
+    '''
+    convert 3 rgb images into grayscale and put them into the 3 channels of
+    a single output image
+    '''
+    width, height = img_a.shape
+
+    gray_a = img_a #cv2.cvtColor(img_a, cv2.COLOR_RGB2GRAY)
+    gray_b = img_b #cv2.cvtColor(img_b, cv2.COLOR_RGB2GRAY)
+    gray_c = img_c #cv2.cvtColor(img_c, cv2.COLOR_RGB2GRAY)
+    
+    img_arr = np.zeros([width, height, 3], dtype=np.dtype('B'))
+
+    img_arr[...,0] = np.reshape(gray_a, (width, height))
+    img_arr[...,1] = np.reshape(gray_b, (width, height))
+    img_arr[...,2] = np.reshape(gray_c, (width, height))
+
+    return img_arr
+
+def stacked_image(image, fullpath, d):
+    b_fnm = get_prev_fnm(fullpath, d)
+    c_fnm = None
+    if b_fnm is not None:
+        c_fnm = get_prev_fnm(b_fnm, d)
+    #print('trying 3 images! %s, %s, %s' %(fullpath, b_fnm, c_fnm))
+    
+    if b_fnm is not None and c_fnm is not None and os.path.exists(b_fnm) and os.path.exists(c_fnm):
+        b_img = cv2.imread(b_fnm, 0)
+        c_img = cv2.imread(c_fnm, 0)
+        a = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        b = b_img
+        c = c_img
+        #print('stacked 3 images! %s, %s, %s' %(fullpath, b_fnm, c_fnm))
+        return stack3Images(c, b, a)
+    return image
+
+def hash_name(filename):
+    head, tail = os.path.split(filename)
+    sl = tail.split('_')
+    return hash(head) + hash(sl[1])
+
+def make_sample_dict(samples):
+    d ={}
+    for s in samples:
+        h = hash_name(s)
+        if h in d:
+            print('hash collision!!', s)
+        else:
+            d[h] = s
+    return d
+
+def generator(samples, d, batch_size=32, perc_to_augment=0.5):
     '''
     Rather than keep all data in memory, we will make a function that keeps
     it's state and returns just the latest batch required via the yield command.
@@ -75,7 +151,7 @@ def generator(samples, batch_size=32, perc_to_augment=0.5):
     negated.
     '''
     num_samples = len(samples)
-    shadows = augment.load_shadow_images('./shadows/*.png')    
+    shadows = augment.load_shadow_images('./shadows/*.png')
     
     while 1: # Loop forever so the generator never terminates
         samples = shuffle(samples)
@@ -86,15 +162,16 @@ def generator(samples, batch_size=32, perc_to_augment=0.5):
             images = []
             controls = []
             for fullpath in batch_samples:
-                try:
+                if True:#try:
                     data = parse_img_filepath(fullpath)
                 
                     steering = data["steering"]
                     throttle = data["throttle"]
 
-                    try:
-                        image = Image.open(fullpath)
-                    except:
+                    if True:#try:
+                        image = cv2.imread(fullpath)
+                        image = stacked_image(image, fullpath, d)
+                    else:#except:
                         image = None
 
                     if image is None:
@@ -102,7 +179,7 @@ def generator(samples, batch_size=32, perc_to_augment=0.5):
                         continue
 
                     #PIL Image as a numpy array
-                    image = np.array(image)
+                    #image = np.array(image)
 
                     if len(shadows) > 0 and random.uniform(0.0, 1.0) < perc_to_augment:
                         image = augment.augment_image(image, shadows)
@@ -117,7 +194,7 @@ def generator(samples, batch_size=32, perc_to_augment=0.5):
                     else:
                         print("expected 1 or 2 ouputs")
 
-                except:
+                else:#except:
                     print("we threw an exception on:", fullpath)
                     yield [], []
 
@@ -167,14 +244,16 @@ def make_generators(inputs, limit=None, batch_size=32, aug_perc=0.0):
     if limit is not None:
         lines = lines[:limit]
         print("limiting to %d files" % len(lines))
+
+    d = make_sample_dict(lines)        
     
     train_samples, validation_samples = train_test_split(lines, test_perc=0.2)
 
     print("num train/val", len(train_samples), len(validation_samples))
     
     # compile and train the model using the generator function
-    train_generator = generator(train_samples, batch_size=batch_size, perc_to_augment=aug_perc)
-    validation_generator = generator(validation_samples, batch_size=batch_size, perc_to_augment=0.0)
+    train_generator = generator(train_samples, d, batch_size=batch_size, perc_to_augment=aug_perc)
+    validation_generator = generator(validation_samples, d, batch_size=batch_size, perc_to_augment=0.0)
     
     n_train = len(train_samples)
     n_val = len(validation_samples)
